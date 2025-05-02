@@ -80,7 +80,6 @@ def get_directory_tree(path: str, prefix: str = "", max_depth: int = 3, current_
 def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
     """执行命令并返回结果"""
     try:
-        # 使用subprocess执行命令
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -89,7 +88,7 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
             cwd=cwd,
             text=True
         )
-        stdout, stderr = process.communicate()
+        stdout, stderr = process.communicate()  # 等待命令完成
         
         result = {
             "command": command,
@@ -257,24 +256,27 @@ def detect_system_info() -> Dict[str, Any]:
     info = {
         "os": os.name,
         "platform": sys.platform,
-        "python_version": sys.version,
-        "package_managers": {}
+        "python_version": sys.version
     }
     
-    # 检查常见的包管理器
-    package_managers = [
-        {"name": "npm", "command": "npm --version"},
-        {"name": "yarn", "command": "yarn --version"},
-        {"name": "uv", "command": "uv --version"}
-    ]
-    
-    for pm in package_managers:
-        result = execute_command(pm["command"])
-        info["package_managers"][pm["name"]] = {
-            "available": result["success"],
-            "version": result["stdout"].strip() if result["success"] else None
-        }
-    
+    # check if the computer has Nvidia GPU
+    has_nvidia_gpu = False
+    # try:
+    #     nvidia_smi_output = subprocess.check_output("nvidia-smi", shell=True, text=True)
+    #     if "NVIDIA-SMI" in nvidia_smi_output:
+    #         has_nvidia_gpu = True
+    # except Exception as e:
+    #     pass
+    # info["has_nvidia_gpu"] = has_nvidia_gpu
+    #check conda exists
+    conda_exists = True
+    # try:
+    #     conda_output = subprocess.check_output("conda --version", shell=True, text=True)
+    #     if "conda" in conda_output:
+    #         conda_exists = True
+    # except Exception as e:
+    #     pass
+    info["conda_exists"] = conda_exists
     return info
 if __name__ == "__main__":
     mcp.run(transport='stdio')
