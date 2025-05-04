@@ -9,7 +9,8 @@ from typing import List, Dict, Any
 import hashlib
 import git
 import sys
-# 创建 FastMCP 实例
+
+# Create FastMCP instance
 mcp = FastMCP(
     "GitHub Easy Install",
     description="Analyze GitHub repositories and automate installation process",
@@ -19,66 +20,182 @@ mcp = FastMCP(
     ]
 )
 
-def clone_repo(repo_url: str) -> str:
-    """克隆仓库并返回路径。如果仓库已经克隆到临时目录中，则重用它。"""
-    """ Repo URL example
-        ssh://[<user>@]<host>[:<port>]/<path-to-git-repo>
-        git://<host>[:<port>]/<path-to-git-repo>
-        http[s]://<host>[:<port>]/<path-to-git-repo>
+################# Step 1: System Information Detection ###################
+@mcp.tool()
+def detect_system_info() -> Dict[str, Any]:
     """
-    # 基于仓库URL创建确定性的目录名
+    Detect system information, including OS, Python version, and package manager availability.
+
+    Returns:
+        A dictionary containing system information.
+    """
+    info = {
+        "os": os.name,
+        "platform": sys.platform,
+        "python_version": sys.version,
+        "conda_exists": shutil.which("conda") is not None  # Check if conda exists
+    }
+    return info
+
+################# Step 2: Repository Cloning ###################
+def clone_repo(repo_url: str, local_dir: str = None) -> str:
+    """
+    Clone a GitHub repository and return its path. Reuse the directory if already cloned.
+
+    Args:
+        repo_url: The URL of the GitHub repository.
+        local_dir: Optional custom local directory to clone the repository.
+
+    Returns:
+        The path to the cloned repository.
+    """
+    # Use the provided local directory or generate a temporary directory
     repo_hash = hashlib.sha256(repo_url.encode()).hexdigest()[:12]
-    temp_dir = os.path.join(tempfile.gettempdir(), f"github_install_{repo_hash}")
-    
-    # 如果目录存在且是有效的git仓库，返回它
+    temp_dir = local_dir or os.path.join(tempfile.gettempdir(), f"github_install_{repo_hash}")
+
     if os.path.exists(temp_dir):
         try:
             repo = git.Repo(temp_dir)
             if not repo.bare and repo.remote().url == repo_url:
-                # 拉取最新版本
-                repo.git.pull()
+                repo.git.pull()  # Pull the latest changes
                 return temp_dir
         except:
-            # 如果现有仓库有任何错误，清理它
-            shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    # 创建目录并克隆仓库
+            shutil.rmtree(temp_dir, ignore_errors=True)  # Clean up if the repo is invalid
+
     os.makedirs(temp_dir, exist_ok=True)
     try:
         git.Repo.clone_from(repo_url, temp_dir)
         return temp_dir
     except Exception as e:
-        # 出错时清理
         shutil.rmtree(temp_dir, ignore_errors=True)
-        raise Exception(f"无法克隆仓库: {str(e)}")
+        raise Exception(f"Failed to clone repository: {str(e)}")
 
+################# Step 3: Repository Analysis ###################
 def get_directory_tree(path: str, prefix: str = "", max_depth: int = 3, current_depth: int = 0) -> str:
-    """生成类似树的目录结构字符串"""
+    """
+    Generate a tree-like structure of the directory.
+
+    Args:
+        path: The directory path.
+        prefix: The prefix for the tree structure.
+        max_depth: Maximum depth to traverse.
+        current_depth: Current depth of traversal.
+
+    Returns:
+        A string representing the directory structure.
+    """
     if current_depth > max_depth:
         return prefix + "...\n"
-        
+
     output = ""
-    entries = os.listdir(path)
-    entries.sort()
-    
-    # 过滤一些常见的大型目录
+    entries = sorted(os.listdir(path))
     filtered_entries = [e for e in entries if not e.startswith(('.git', '__pycache__', 'node_modules', 'venv'))]
-    
+
     for i, entry in enumerate(filtered_entries):
         is_last = i == len(filtered_entries) - 1
         current_prefix = "└── " if is_last else "├── "
         next_prefix = "    " if is_last else "│   "
-        
+
         entry_path = os.path.join(path, entry)
         output += prefix + current_prefix + entry + "\n"
-        
+
         if os.path.isdir(entry_path):
             output += get_directory_tree(entry_path, prefix + next_prefix, max_depth, current_depth + 1)
-            
+
     return output
 
+@mcp.tool()
+def analyze_github_repo(repo_url: str, local_dir: str = None) -> Dict[str, Any]:
+    """
+    Analyze a GitHub repository and collect installation-related information.
+
+    Args:
+        repo_url: The URL of the GitHub repository.
+        local_dir: Optional custom local directory to clone the repository.
+
+    Returns:
+        A dictionary containing repository analysis results.
+    """
+    try:
+        # Clone the repository to the specified local directory
+        repo_path = clone_repo(repo_url, local_dir)
+        structure = get_directory_tree(repo_path)
+
+        key_files = {}
+        key_file_paths = [
+            "README.md", "readme.md", "README.rst",
+            "requirements.txt", "environment.yml", "environment.yaml",
+            "setup.py", "pyproject.toml", "package.json", "Dockerfile"
+        ]
+
+        for file_path in key_file_paths:
+            full_path = os.path.join(repo_path, file_path)
+            if os.path.isfile(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        key_files[file_path] = f.read()
+                except Exception as e:
+                    key_files[file_path] = f"Error reading file: {str(e)}"
+
+        return {
+            "repo_url": repo_url,
+            "repo_path": repo_path,
+            "structure": structure,
+            "key_files": key_files
+        }
+    except Exception as e:
+        return {"error": f"Failed to analyze repository: {str(e)}"}
+
+################# Step 4: Environment Setup ###################
+def analyze_error(error_text: str) -> List[str]:
+    """
+    Analyze error text to identify possible causes.
+
+    Args:
+        error_text: The error message text.
+
+    Returns:
+        A list of possible error causes.
+    """
+    common_errors = {
+        "ModuleNotFoundError": "Missing Python module",
+        "ImportError": "Import error, possibly missing dependencies",
+        "SyntaxError": "Python syntax error",
+        "PermissionError": "Permission error, may require admin privileges",
+        "FileNotFoundError": "File not found",
+        "ConnectionError": "Connection error, may require network access",
+        "pip": {
+            "Could not find a version": "Could not find the specified package version",
+            "Command errored out": "Command execution error"
+        },
+        "conda": {
+            "PackagesNotFoundError": "Could not find the specified conda package",
+            "CondaEnvironmentError": "Conda environment error"
+        }
+    }
+
+    analysis = []
+    for error_type, message in common_errors.items():
+        if isinstance(message, dict):
+            for sub_error, sub_message in message.items():
+                if sub_error in error_text:
+                    analysis.append(f"{error_type} - {sub_message}")
+        elif error_type in error_text:
+            analysis.append(message)
+
+    return analysis if analysis else ["Unrecognized error type"]
+
 def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
-    """执行命令并返回结果"""
+    """
+    Execute a shell command and return the result.
+
+    Args:
+        command: The command to execute.
+        cwd: The working directory for the command.
+
+    Returns:
+        A dictionary containing the command execution result.
+    """
     try:
         process = subprocess.Popen(
             command,
@@ -88,22 +205,16 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
             cwd=cwd,
             text=True
         )
-        stdout, stderr = process.communicate()  # 等待命令完成
-        
+        stdout, stderr = process.communicate()
+
         result = {
             "command": command,
             "exit_code": process.returncode,
             "stdout": stdout,
             "stderr": stderr,
-            "success": process.returncode == 0
+            "success": process.returncode == 0,
+            "error_analysis": analyze_error(stderr) if process.returncode != 0 else []
         }
-        
-        # 添加错误分析
-        if not result["success"]:
-            result["error_analysis"] = analyze_error(stderr)
-        else:
-            result["error_analysis"] = []
-        
         return result
     except Exception as e:
         return {
@@ -112,171 +223,72 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
             "stdout": "",
             "stderr": str(e),
             "success": False,
-            "error_analysis": ["执行命令时发生异常"]
+            "error_analysis": ["Exception occurred while executing command"]
         }
-
-def analyze_error(error_text: str) -> List[str]:
-    """简单分析错误文本，找出可能的错误原因"""
-    common_errors = {
-        "ModuleNotFoundError": "缺少Python模块",
-        "ImportError": "导入错误，可能缺少依赖",
-        "SyntaxError": "Python语法错误",
-        "PermissionError": "权限错误，可能需要管理员权限",
-        "FileNotFoundError": "找不到文件",
-        "ConnectionError": "连接错误，可能需要网络连接",
-        "pip": {
-            "Could not find a version": "找不到指定版本的包",
-            "Command errored out": "命令执行错误"
-        },
-        "conda": {
-            "PackagesNotFoundError": "找不到指定的conda包",
-            "CondaEnvironmentError": "conda环境错误"
-        }
-    }
-    
-    analysis = []
-    for error_type, message in common_errors.items():
-        if isinstance(message, dict):
-            for sub_error, sub_message in message.items():
-                if sub_error in error_text:
-                    analysis.append(f"{error_type} - {sub_message}")
-        elif error_type in error_text:
-            analysis.append(message)
-    
-    return analysis if analysis else ["未能识别的错误类型"]
 
 @mcp.tool()
-def analyze_github_repo(repo_url: str) -> Dict[str, Any]:
+def clone_and_setup_repo(local_dir: str, setup_commands: List[str]) -> Dict[str, Any]:
     """
-    分析GitHub仓库并收集安装相关信息
-    
+    Set up the environment for a previously cloned GitHub repository using provided commands.
+
     Args:
-        repo_url: GitHub仓库URL
-        
+        local_dir: The local directory where the repository is cloned.
+        setup_commands: A list of setup commands to execute.
+
     Returns:
-        包含仓库分析结果的字典
+        A dictionary containing the results of the setup process.
     """
     try:
-        # 克隆仓库
-        repo_path = clone_repo(repo_url)
-        
-        # 获取目录结构
-        structure = get_directory_tree(repo_path)
-        
-        # 检查关键文件
-        results = {
-            "repo_url": repo_url,
-            "repo_path": repo_path,
-            "structure": structure,
-            "key_files": {}
+        setup_results = []
+        all_successful = True
+
+        for cmd in setup_commands:
+            cmd_result = execute_command(cmd, local_dir)
+            setup_results.append(cmd_result)
+            if not cmd_result["success"]:
+                all_successful = False
+
+        return {
+            "repo_path": local_dir,
+            "setup_results": setup_results,
+            "all_successful": all_successful
         }
-        
-        # 检查常见的安装相关文件
-        key_file_paths = [
-            "README.md", "readme.md", "README.rst",
-            "requirements.txt",
-            "environment.yml", "environment.yaml",
-            "setup.py", "pyproject.toml",
-            "package.json",
-            "Dockerfile"
-        ]
-        
-        for file_path in key_file_paths:
-            full_path = os.path.join(repo_path, file_path)
-            if os.path.isfile(full_path):
-                try:
-                    with open(full_path, 'r', encoding='utf-8') as f:
-                        results["key_files"][file_path] = f.read()
-                except Exception as e:
-                    results["key_files"][file_path] = f"Error reading file: {str(e)}"
-        
-        return results
-            
     except Exception as e:
-        return {"error": f"Failed to analyze repository: {str(e)}"}
+        return {"error": f"Failed to set up repository: {str(e)}"}
 
 @mcp.tool()
 def execute_cli_command(command: str, working_directory: str = None) -> Dict[str, Any]:
     """
-    执行CLI命令并返回结果
-    
+    Execute a CLI command and return the result.
+
     Args:
-        command: 要执行的命令
-        working_directory: 命令执行的工作目录
-        
+        command: The command to execute.
+        working_directory: The working directory for the command.
+
     Returns:
-        包含命令执行结果的字典
+        A dictionary containing the command execution result.
     """
     return execute_command(command, working_directory)
 
-@mcp.tool()
-def clone_and_setup_repo(repo_url: str, setup_commands: List[str]) -> Dict[str, Any]:
-    """
-    克隆GitHub仓库并根据提供的命令设置环境
-    
-    Args:
-        repo_url: GitHub仓库URL
-        setup_commands: 安装命令列表
-        
-    Returns:
-        包含克隆和安装结果的字典
-    """
-    try:
-        # 克隆仓库
-        repo_path = clone_repo(repo_url)
-        
-        # 执行设置命令
-        setup_results = []
-        all_successful = True
-        
-        for cmd in setup_commands:
-            cmd_result = execute_command(cmd, repo_path)
-            setup_results.append(cmd_result)
-            if not cmd_result["success"]:
-                all_successful = False
-        
-        return {
-            "repo_url": repo_url,
-            "repo_path": repo_path,
-            "setup_results": setup_results,
-            "all_successful": all_successful
-        }
-            
-    except Exception as e:
-        return {"error": f"Failed to setup repository: {str(e)}"}
+@mcp.prompt("github_installation_workflow")
+def github_installation_prompt(repo_url: str, install_path: str) -> str:
+    return f"""
+    I would like to install a GitHub repository. Please use the MCP Server tool to complete the following automated installation process:
 
-@mcp.tool()
-def detect_system_info() -> Dict[str, Any]:
+    GitHub repository information [{repo_url}];  
+    Installation location [{install_path}];
+
+    Please execute the following steps, with each command separated by a semicolon instead of &&:
+
+    1. Detect system information, including OS, Python version, and package manager availability.
+    2. Clone a GitHub repository and return its path. Reuse the directory if already cloned.
+    3. Analyze the cloned GitHub repository and collect installation-related information. Then generate a list of setup commands.
+    4. Set up the environment for a previously cloned GitHub repository using provided commands.
+    5. Analyze error text to identify possible causes.
+
+    Please display the executed commands and results in detail for each step, and explain the key information in an easy-to-understand manner. 
+    Separate all commands with semicolons instead of &&.   
     """
-    检测系统信息，包括操作系统、Python版本、可用包管理器等
-    
-    Returns:
-        包含系统信息的字典
-    """
-    info = {
-        "os": os.name,
-        "platform": sys.platform,
-        "python_version": sys.version
-    }
-    
-    # check if the computer has Nvidia GPU
-    has_nvidia_gpu = False
-    # try:
-    #     nvidia_smi_output = subprocess.check_output("nvidia-smi", shell=True, text=True)
-    #     if "NVIDIA-SMI" in nvidia_smi_output:
-    #         has_nvidia_gpu = True
-    # except Exception as e:
-    #     pass
-    # info["has_nvidia_gpu"] = has_nvidia_gpu
-    #check conda exists
-    conda_exists = True
-    # try:
-    #     conda_output = subprocess.check_output("conda --version", shell=True, text=True)
-    #     if "conda" in conda_output:
-    #         conda_exists = True
-    # except Exception as e:
-    #     pass
-    info["conda_exists"] = conda_exists
-    return info
+
 if __name__ == "__main__":
     mcp.run(transport='stdio')
