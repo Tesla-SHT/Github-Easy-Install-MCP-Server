@@ -1,15 +1,28 @@
-我想安装一个 GitHub 仓库。请使用 MCP Server 工具帮我完成以下自动化安装流程：
 
 GitHub 仓库信息 [https://github.com/CUT3R/CUT3R.git]
 本地路径 [D:\NLP\CUT3R]
-请按照以下步骤执行，所有命令用分号分隔每个命令而非&&：
+设置网络：set http_proxy=http://127.0.0.1:7890 ;set https_proxy=https://127.0.0.1:7890
 
-1. 首先，检测我的系统环境，分析可用的软件包管理器
-2. 分析指定的 GitHub 仓库，检查关键文件和目录结构
-3. 根据仓库分析结果和我的系统环境，确定最佳安装方法
-4. 生成详细的安装命令清单
-5. 执行安装命令
-6. 如果执行中遇到任何问题，请分析错误原因并提供解决方案
-7. 成功安装后，提供如何验证安装是否成功以及基本使用说明
 
-请在每个步骤详细展示执行的命令和结果，并以易于理解的方式解释关键信息。所有命令用分号分隔每个命令而非&&
+
+    I would like to install a GitHub repository. Please use the MCP Server tool to complete the following automated installation process:
+
+    GitHub repository information [{repo_url}];   
+    Installation location [{install_path}];
+
+    Please execute the following steps, with each command separated by a semicolon instead of &&:
+
+    1. Detect system information, including OS, Python version, and package manager availability.
+    2. Clone a GitHub repository and return its path. Reuse the directory if already cloned.
+    3. Analyze the cloned GitHub repository and collect installation-related information. Then generate a list of setup commands.
+    4. Set up the environment for a previously cloned GitHub repository using provided commands.
+    5. Analyze error text to identify possible causes.
+
+    Please display the executed commands and results in detail for each step, and explain the key information in an easy-to-understand manner. 
+    Separate all commands with semicolons instead of &&.
+
+    some more to mention:
+    1. do not spell words wrong, like NLP, mpc.
+    2. do not use conda activate cut3r, use conda run -n cut3r instead.
+    3. do not run all the command in one time, run one command at one time instead.
+

@@ -9,6 +9,7 @@ from typing import List, Dict, Any
 import hashlib
 import git
 import sys
+import time
 
 # Create FastMCP instance
 mcp = FastMCP(
@@ -185,7 +186,8 @@ def analyze_error(error_text: str) -> List[str]:
 
     return analysis if analysis else ["Unrecognized error type"]
 
-def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
+@mcp.tool()
+def execute_command(conda_path, command: str, cwd: str = None, timeout_seconds: int = 3000) -> Dict[str, Any]:
     """
     Execute a shell command and return the result.
 
@@ -197,6 +199,8 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
         A dictionary containing the command execution result.
     """
     try:
+        if "conda" in command:
+            command = command.replace("conda", conda_path)
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -205,7 +209,7 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
             cwd=cwd,
             text=True
         )
-        stdout, stderr = process.communicate()
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
 
         result = {
             "command": command,
@@ -227,7 +231,7 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
         }
 
 @mcp.tool()
-def clone_and_setup_repo(local_dir: str, setup_commands: List[str]) -> Dict[str, Any]:
+def clone_and_setup_repo(local_dir: str, setup_commands: List[str], command_timeout_seconds: int = 3000, conda_path: str = r"D:\Anacode\condabin\conda.bat" ) -> Dict[str, Any]:
     """
     Set up the environment for a previously cloned GitHub repository using provided commands.
 
@@ -243,7 +247,7 @@ def clone_and_setup_repo(local_dir: str, setup_commands: List[str]) -> Dict[str,
         all_successful = True
 
         for cmd in setup_commands:
-            cmd_result = execute_command(cmd, local_dir)
+            cmd_result = execute_command(conda_path, cmd, local_dir, timeout_seconds=command_timeout_seconds)
             setup_results.append(cmd_result)
             if not cmd_result["success"]:
                 all_successful = False
@@ -257,7 +261,7 @@ def clone_and_setup_repo(local_dir: str, setup_commands: List[str]) -> Dict[str,
         return {"error": f"Failed to set up repository: {str(e)}"}
 
 @mcp.tool()
-def execute_cli_command(command: str, working_directory: str = None) -> Dict[str, Any]:
+def execute_cli_command(command: str, working_directory: str = None, command_timeout_seconds: int = 3000) -> Dict[str, Any]:
     """
     Execute a CLI command and return the result.
 
@@ -268,7 +272,7 @@ def execute_cli_command(command: str, working_directory: str = None) -> Dict[str
     Returns:
         A dictionary containing the command execution result.
     """
-    return execute_command(command, working_directory)
+    return execute_command(command, working_directory, timeout_seconds=command_timeout_seconds)
 
 @mcp.prompt("github_installation_workflow")
 def github_installation_prompt(repo_url: str, install_path: str) -> str:
@@ -290,5 +294,10 @@ def github_installation_prompt(repo_url: str, install_path: str) -> str:
     Separate all commands with semicolons instead of &&.   
     """
 
-if __name__ == "__main__":
-    mcp.run(transport='stdio')
+# if __name__ == "__main__":
+#     conda_path = r"D:\Anacode\condabin\conda.bat"
+#     start = time.time()
+#     result = execute_command(conda_path, "conda create -n cut3r python=3.11 cmake=3.14.0 -y")
+#     print(result)
+#     print(time.time()-start)
+

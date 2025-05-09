@@ -1,0 +1,2 @@
+[fastmcp]
+github_install = github_install_mcp:mcp
