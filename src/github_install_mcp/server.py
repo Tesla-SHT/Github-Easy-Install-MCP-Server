@@ -190,32 +190,51 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
     Execute a shell command and return the result.
 
     Args:
-        command: The command to execute.
+        command: The command to execute (string or list).
         cwd: The working directory for the command.
 
     Returns:
         A dictionary containing the command execution result.
     """
     try:
-        process = subprocess.Popen(
+        # Convert string command to list for better security and argument handling
+        # For conda commands in particular, we want to use this approach
+        # shell_mode = False
+        # if isinstance(command, str):
+        #     if command.strip().startswith("conda"):
+        #         # Special handling for conda commands
+        #         cmd_args = command.split()
+        #     else:
+        #         # For other commands, we'll keep using shell=True for compatibility
+        #         cmd_args = command
+        #         shell_mode = True
+        # else:
+        #     cmd_args = command
+        #     shell_mode = False
+        # shell_mode = True
+        # Run the command with appropriate stdout/stderr capturing
+        # if "conda" in command:
+        #     command = command.replace("conda", "D:\Anaconda\condabin\conda.bat")
+        command = "D:\\Anaconda\\condabin\\conda.bat env list"
+        print(command)
+        result = subprocess.Popen(
             command,
+            shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            shell=True,
-            cwd=cwd,
-            text=True
+            text=True,
+            encoding='utf-8',
+            env=os.environ.copy(),
         )
-        stdout, stderr = process.communicate()
-
-        result = {
+        stdout, stderr = result.communicate()
+        result.kill()
+        return {
             "command": command,
-            "exit_code": process.returncode,
+            "exit_code": result.returncode,
             "stdout": stdout,
             "stderr": stderr,
-            "success": process.returncode == 0,
-            "error_analysis": analyze_error(stderr) if process.returncode != 0 else []
+            "success": result.returncode == 0
         }
-        return result
     except Exception as e:
         return {
             "command": command,
@@ -227,35 +246,42 @@ def execute_command(command: str, cwd: str = None) -> Dict[str, Any]:
         }
 
 @mcp.tool()
-def clone_and_setup_repo(local_dir: str, setup_commands: List[str]) -> Dict[str, Any]:
+def clone_and_setup_repo(local_dir: str, setup_commands: List[str], current_step: int = 0) -> Dict[str, Any]:
     """
-    Set up the environment for a previously cloned GitHub repository using provided commands.
+    执行setup_commands中的一条命令，每次调用只执行一条，返回结果和下一个step。
 
     Args:
-        local_dir: The local directory where the repository is cloned.
-        setup_commands: A list of setup commands to execute.
+        local_dir: 仓库本地路径
+        setup_commands: 待执行命令列表
+        current_step: 当前要执行的命令索引
 
     Returns:
-        A dictionary containing the results of the setup process.
+        dict: {
+            "repo_path": ...,
+            "step": 当前执行的step,
+            "command": 本次执行的命令,
+            "result": 本次命令执行结果,
+            "next_step": 下一个step索引（如果有）,
+            "finished": 是否全部执行完
+        }
     """
-    try:
-        setup_results = []
-        all_successful = True
-
-        for cmd in setup_commands:
-            cmd_result = execute_command(cmd, local_dir)
-            setup_results.append(cmd_result)
-            if not cmd_result["success"]:
-                all_successful = False
-
+    if current_step >= len(setup_commands):
         return {
             "repo_path": local_dir,
-            "setup_results": setup_results,
-            "all_successful": all_successful
+            "finished": True,
+            "message": "All setup commands have been executed."
         }
-    except Exception as e:
-        return {"error": f"Failed to set up repository: {str(e)}"}
-
+    cmd = setup_commands[current_step]
+    result = execute_command(cmd, local_dir)
+    finished = (current_step == len(setup_commands) - 1)
+    return {
+        "repo_path": local_dir,
+        "step": current_step,
+        "command": cmd,
+        "result": result,
+        "next_step": current_step + 1 if not finished else None,
+        "finished": finished
+    }
 @mcp.tool()
 def execute_cli_command(command: str, working_directory: str = None) -> Dict[str, Any]:
     """

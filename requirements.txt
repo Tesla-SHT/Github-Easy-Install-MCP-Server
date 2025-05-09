@@ -2,3 +2,4 @@ fastmcp
 pydantic
 PyGithub
 GitPython
+pytest
